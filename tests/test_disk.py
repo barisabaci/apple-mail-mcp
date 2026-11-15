@@ -1875,3 +1875,30 @@ class TestHeaderDecoding:
         assert result is not None
         assert "José García" in result.sender
         assert "�" not in result.sender
+
+    def test_8bit_subject_falls_back_to_cp1254(self, tmp_path: Path):
+        mime = (
+            b"From: sender@example.com\n"
+            b"Subject: \xddstanbul Fiyat Listesi\n"
+            b"Date: Mon, 15 Jan 2024 10:30:00 -0500\n"
+            b"\n"
+            b"body\n"
+        )
+        result = parse_emlx(_write_emlx(tmp_path, mime))
+        assert result is not None
+        assert result.subject == "İstanbul Fiyat Listesi"
+        assert "�" not in result.subject
+
+    def test_8bit_subject_falls_back_to_latin1(self, tmp_path: Path):
+        # 0x81 is undefined in cp1254, so the chain ends at latin-1.
+        mime = (
+            b"From: sender@example.com\n"
+            b"Subject: \x81 Rapor\n"
+            b"Date: Mon, 15 Jan 2024 10:30:00 -0500\n"
+            b"\n"
+            b"body\n"
+        )
+        result = parse_emlx(_write_emlx(tmp_path, mime))
+        assert result is not None
+        assert result.subject == "\x81 Rapor"
+        assert "�" not in result.subject

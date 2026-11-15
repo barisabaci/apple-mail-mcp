@@ -53,6 +53,10 @@ _cached_mail_dir: Path | None = None
 # Charsets that mean "raw bytes, no declared encoding".
 _UNKNOWN_CHARSETS = ("unknown-8bit", "unknown", "")
 
+# Guess order for bytes with no usable declared charset: UTF-8 first, then the
+# single-byte encodings that mail clients in this locale actually send.
+_CHARSET_FALLBACKS = ("utf-8", "cp1254", "latin-1")
+
 # RFC 2047 encoded word: =?charset?encoding?text?=
 _ENCODED_WORD = re.compile(r"=\?([^?\s]+)\?([bBqQ])\?([^?]*)\?=")
 
@@ -63,24 +67,23 @@ def _decode_bytes(value: bytes, charset: str = "") -> str:
     ``unknown-8bit`` means "raw bytes, no declared encoding". Rendering
     those bytes as ASCII replaces every non-ASCII byte with U+FFFD - one
     replacement character per byte, so a single 4-byte emoji turns into
-    four. Those byte runs are UTF-8 in practice, so they are decoded as
-    UTF-8 here; ``errors="replace"`` is only the last resort for bytes
-    that are not valid UTF-8.
+    four. UTF-8 is tried first, because those byte runs usually are
+    UTF-8; the single-byte encodings are the fallback for the bytes that
+    are not, and ``errors="replace"`` is the last resort of the last
+    resort.
     """
     name = (charset or "").lower()
-    if name in _UNKNOWN_CHARSETS:
+    if name and name not in _UNKNOWN_CHARSETS:
         try:
-            return value.decode("utf-8")
+            return value.decode(charset)
+        except (UnicodeDecodeError, LookupError):
+            pass
+    for candidate in _CHARSET_FALLBACKS:
+        try:
+            return value.decode(candidate)
         except UnicodeDecodeError:
-            return value.decode("utf-8", errors="replace")
-    try:
-        return value.decode(charset)
-    except (UnicodeDecodeError, LookupError):
-        pass
-    try:
-        return value.decode("utf-8")
-    except UnicodeDecodeError:
-        return value.decode("utf-8", errors="replace")
+            continue
+    return value.decode("utf-8", errors="replace")
 
 
 def _decode_header_parts(parts: list[tuple[object, object]]) -> list[str]:
